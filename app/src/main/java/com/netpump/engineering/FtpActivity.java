@@ -439,7 +439,7 @@ public final class FtpActivity extends Activity {
             int threadCount = test.optInt("threads", 3);
             int duration = test.optInt("durationSeconds", 120);
             int rounds = test.optInt("rounds", 1);
-            int interval = test.optInt("intervalSeconds", 10);
+            int intervalValue = test.optInt("intervalSeconds", 10);
             int delaySeconds = test.optInt("delaySeconds", 5);
             int endSeconds = test.optInt("endSeconds", 5);
             if (server.isEmpty() || server.contains("/") || server.contains(" ") ||
@@ -450,14 +450,14 @@ public final class FtpActivity extends Activity {
                     ftpPort < 1 || ftpPort > 65535 ||
                     threadCount < 1 || threadCount > 32 ||
                     duration < 1 || duration > 600 || rounds < 1 || rounds > 20 ||
-                    interval < 0 || interval > 300 || delaySeconds < 0 || delaySeconds > 60 ||
+                    intervalValue < 0 || intervalValue > 300 || delaySeconds < 0 || delaySeconds > 60 ||
                     endSeconds < 0 || endSeconds > 60)
                 throw new IllegalArgumentException("FTP 地址、账号或测试参数不合法");
             host.setText(server); port.setText(String.valueOf(ftpPort));
             user.setText(login); password.setText(secret); file.setText(path);
             threads.setText(String.valueOf(threadCount));
             seconds.setText(String.valueOf(duration)); count.setText(String.valueOf(rounds));
-            interval.setText(String.valueOf(interval)); delay.setText(String.valueOf(delaySeconds));
+            interval.setText(String.valueOf(intervalValue)); delay.setText(String.valueOf(delaySeconds));
             end.setText(String.valueOf(endSeconds));
             cyclic.setChecked(test.optBoolean("cyclic", false));
             delayCollection.setChecked(test.optBoolean("delayCollection", false));

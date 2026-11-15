@@ -1,10 +1,44 @@
-# NetPump Mobile 2.0 — FTP 工程下行灌包 + 原 TCP/UDP 模式
+# NetPump Mobile 2.x — FTP 工程下行灌包 + 原 TCP/UDP 模式
+
+## FTP JSON 配置一键导入
+
+FTP 页面顶部新增「**导入 FTP 配置（JSON）**」按钮，调用安卓系统文件选择器，支持 `netpump-ftp-profile` 版本 1。导入仅更新填写项并本地保存，**不会自动发起测速**。密码不会写入代码仓库或 APK 的默认配置。
+
+示例（请将占位值替换为自己的授权服务器信息，不要将密码提交到公开仓库）：
+
+```json
+{
+  "format": "netpump-ftp-profile",
+  "version": 1,
+  "name": "我的 FTP",
+  "ftp": {
+    "host": "ftp.example.com",
+    "port": 21,
+    "username": "example_user",
+    "password": "REPLACE_ME",
+    "remotePath": "/download/sample.bin",
+    "passive": true
+  },
+  "test": {
+    "threads": 3,
+    "durationSeconds": 120,
+    "rounds": 1,
+    "intervalSeconds": 10,
+    "delaySeconds": 5,
+    "endSeconds": 5,
+    "cyclic": false,
+    "delayCollection": false
+  }
+}
+```
+
+手机操作：把 .json 文件放到「下载」目录，在 App 内点击导入，选中文件，导入后先点击「检测 FTP 登录 / 检查文件」。导入的明文 JSON 包含账号密码，建议导入后从共享目录删除。若卸载 App 或清除应用数据，保存在 Android Keystore 中的登录信息也会被清除。
 
 ## v2 新增：FTP 多线程下行灌包
 
 本版本针对现场使用的 FTP 服务端，使用标准 `FTP RETR` 进行下载测速，**无需安装原 NetPump Python 服务端**。保留旧的 TCP/UDP 自有协议测速入口。打开 App 默认进入 FTP 下载页面。
 
-- FTP 服务器 Host/Port、用户名/密码、远程文件路径可配置；密码**仅在当前内存中使用，不写入本地配置、历史记录或 CSV**。
+- FTP 服务器 Host/Port、用户名/密码、远程文件路径可配置；密码经 **Android Keystore AES-GCM** 在设备私有区加密保存，测试历史和 CSV 不含密码。
 - 默认参数：端口 `8108`、并发线程 `10`、文件 `/download/20GB.ZIP`、单轮 `120` 秒；FTP 服务器地址和用户名需用户在 App 内输入，避免在公开源码仓库披露具体服务器。
 - 被动 FTP：优先 `EPSV`，回退 `PASV`。每条并发线程使用自己的 FTP 控制连接和数据连接；支持多线程同时下载同一服务器文件。
 - 数据**仅用于计算网络吞吐量、直接丢弃**；不会把 20 GB 文件保存到手机存储。

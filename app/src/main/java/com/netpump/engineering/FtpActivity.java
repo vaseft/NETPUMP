@@ -18,6 +18,10 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -35,16 +39,25 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.OutputStream;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.Locale;
+import java.security.KeyStore;
+import java.util.Arrays;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.GCMParameterSpec;
 
 /** Focused FTP download tester, with a simple reference-compatible settings form. */
 public final class FtpActivity extends Activity {
     private static final int BG = Color.rgb(10, 17, 28), CARD = Color.rgb(24, 35, 50);
     private static final int FG = Color.rgb(241, 249, 255), MUTED = Color.rgb(151, 171, 191);
     private static final int ACCENT = Color.rgb(74, 164, 255);
-    private static final int SAVE_CSV = 41;
+    private static final int SAVE_CSV = 41, IMPORT_FTP_PROFILE = 42;
+    private static final String KEYSTORE_ALIAS = "netpump_ftp_local_credential";
     private EditText host, port, user, password, file, threads, seconds, count, interval, end, delay;
     private CheckBox cyclic, delayCollection;
     private TextView rateText, summary, status, history, networkText;
@@ -163,11 +176,20 @@ public final class FtpActivity extends Activity {
 
         LinearLayout settings = box(); root.addView(settings);
         settings.addView(text("FTP 连接 / FtpD", 17, FG, true)); gap(settings, 11);
+        Button importButton = button("导入 FTP 配置（JSON）", Color.rgb(43, 92, 120));
+        settings.addView(importButton, new LinearLayout.LayoutParams(-1, dp(45))); gap(settings, 11);
+        importButton.setOnClickListener(v -> {
+            Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            picker.addCategory(Intent.CATEGORY_OPENABLE);
+            picker.setType("*/*");
+            picker.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"});
+            startActivityForResult(picker, IMPORT_FTP_PROFILE);
+        });
         host = input("FTP 服务器地址", false); port = input("8108", true);
         pair(settings, "Host · 服务器", host, "Port · 端口", port);
         user = input("用户名", false); password = input("在手机上输入密码", false);
         password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        pair(settings, "User", user, "Psd · 密码（不保存）", password);
+        pair(settings, "User", user, "Psd · 密码（设备加密保存）", password);
         file = input("/download/20GB.ZIP", false);
         settings.addView(field("Download file · 远程文件路径", file)); gap(settings, 11);
         settings.addView(text("FtpType   FTP      ·      Passive   true (EPSV/PASV)", 12, MUTED, false));
@@ -223,10 +245,10 @@ public final class FtpActivity extends Activity {
     }
     private void restoreSettings() {
         SharedPreferences p = getSharedPreferences("ftp_settings", MODE_PRIVATE);
-        // The server address from the reference image is intentionally not published in source code.
         host.setText(p.getString("host", ""));
         port.setText(p.getString("port", "8108"));
         user.setText(p.getString("user", ""));
+        password.setText(loadEncryptedPassword());
         file.setText(p.getString("file", "/download/20GB.ZIP"));
         threads.setText(p.getString("threads", "10"));
         seconds.setText(p.getString("seconds", "120"));
@@ -273,6 +295,7 @@ public final class FtpActivity extends Activity {
                 .putString("count", String.valueOf(c.count)).putString("interval", String.valueOf(c.intervalSec))
                 .putString("end", String.valueOf(c.endSec)).putString("delay", String.valueOf(c.delaySec))
                 .putBoolean("cyclic", c.cyclic).putBoolean("delayCollection", c.delayCollection).apply();
+        saveEncryptedPassword(c.password);
     }
     private void promptStart() {
         try {
@@ -345,8 +368,112 @@ public final class FtpActivity extends Activity {
             history.setText(sb.toString());
         } catch (Exception ignored) { history.setText("记录读取失败"); }
     }
+    private SecretKey getOrCreateSecretKey() throws Exception {
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore");
+        store.load(null);
+        KeyStore.Entry entry = store.getEntry(KEYSTORE_ALIAS, null);
+        if (entry instanceof KeyStore.SecretKeyEntry) return ((KeyStore.SecretKeyEntry) entry).getSecretKey();
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder(KEYSTORE_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256).build());
+        return generator.generateKey();
+    }
+    private void saveEncryptedPassword(String value) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey());
+            byte[] iv = cipher.getIV();
+            byte[] encrypted = cipher.doFinal(value.getBytes(StandardCharsets.UTF_8));
+            byte[] payload = new byte[iv.length + encrypted.length];
+            System.arraycopy(iv, 0, payload, 0, iv.length);
+            System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
+            getSharedPreferences("ftp_secret", MODE_PRIVATE).edit()
+                    .putString("password_cipher", Base64.encodeToString(payload, Base64.NO_WRAP)).apply();
+        } catch (Exception error) { toast("密码保存失败；下次启动需重新导入配置"); }
+    }
+    private String loadEncryptedPassword() {
+        String payloadText = getSharedPreferences("ftp_secret", MODE_PRIVATE).getString("password_cipher", "");
+        if (payloadText.isEmpty()) return "";
+        try {
+            byte[] payload = Base64.decode(payloadText, Base64.NO_WRAP);
+            if (payload.length <= 12) return "";
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, getOrCreateSecretKey(),
+                    new GCMParameterSpec(128, Arrays.copyOfRange(payload, 0, 12)));
+            return new String(cipher.doFinal(Arrays.copyOfRange(payload, 12, payload.length)),
+                    StandardCharsets.UTF_8);
+        } catch (Exception error) {
+            getSharedPreferences("ftp_secret", MODE_PRIVATE).edit().remove("password_cipher").apply();
+            return "";
+        }
+    }
+    private void importFtpProfile(Uri uri) {
+        if (uri == null) { toast("未选择配置文件"); return; }
+        try {
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IllegalArgumentException("无法打开该文件");
+                byte[] block = new byte[4096];
+                int n;
+                while ((n = in.read(block)) != -1) {
+                    if (buf.size() + n > 65536) throw new IllegalArgumentException("配置文件超过 64KB");
+                    buf.write(block, 0, n);
+                }
+            }
+            JSONObject root = new JSONObject(buf.toString("UTF-8"));
+            if (!"netpump-ftp-profile".equals(root.optString("format")) || root.optInt("version") != 1)
+                throw new IllegalArgumentException("格式或版本不匹配（要求 netpump-ftp-profile v1）");
+            JSONObject ftp = root.getJSONObject("ftp");
+            JSONObject test = root.optJSONObject("test");
+            if (test == null) test = new JSONObject();
+            if (!ftp.optBoolean("passive", true))
+                throw new IllegalArgumentException("当前只支持被动 FTP");
+            String server = ftp.getString("host").trim();
+            String login = ftp.getString("username").trim();
+            String secret = ftp.getString("password");
+            String path = ftp.getString("remotePath").trim();
+            int ftpPort = ftp.getInt("port");
+            int threadCount = test.optInt("threads", 3);
+            int duration = test.optInt("durationSeconds", 120);
+            int rounds = test.optInt("rounds", 1);
+            int intervalValue = test.optInt("intervalSeconds", 10);
+            int delaySeconds = test.optInt("delaySeconds", 5);
+            int endSeconds = test.optInt("endSeconds", 5);
+            if (server.isEmpty() || server.contains("/") || server.contains(" ") ||
+                    server.contains("\n") || server.contains("\r") ||
+                    login.isEmpty() || login.contains("\n") || login.contains("\r") ||
+                    secret.isEmpty() || secret.contains("\n") || secret.contains("\r") ||
+                    path.isEmpty() || path.contains("\n") || path.contains("\r") ||
+                    ftpPort < 1 || ftpPort > 65535 ||
+                    threadCount < 1 || threadCount > 32 ||
+                    duration < 1 || duration > 600 || rounds < 1 || rounds > 20 ||
+                    intervalValue < 0 || intervalValue > 300 || delaySeconds < 0 || delaySeconds > 60 ||
+                    endSeconds < 0 || endSeconds > 60)
+                throw new IllegalArgumentException("FTP 地址、账号或测试参数不合法");
+            host.setText(server); port.setText(String.valueOf(ftpPort));
+            user.setText(login); password.setText(secret); file.setText(path);
+            threads.setText(String.valueOf(threadCount));
+            seconds.setText(String.valueOf(duration)); count.setText(String.valueOf(rounds));
+            interval.setText(String.valueOf(intervalValue)); delay.setText(String.valueOf(delaySeconds));
+            end.setText(String.valueOf(endSeconds));
+            cyclic.setChecked(test.optBoolean("cyclic", false));
+            delayCollection.setChecked(test.optBoolean("delayCollection", false));
+            persist(readSettings());
+            status.setText("FTP 配置已导入：请先检测登录和文件");
+            Toast.makeText(this, "FTP 配置导入成功（不会自动启动测试）", Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            toast("FTP 配置导入失败：" + error.getMessage());
+        }
+    }
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == IMPORT_FTP_PROFILE && resultCode == RESULT_OK && data != null) {
+            importFtpProfile(data.getData());
+            return;
+        }
         if (requestCode == SAVE_CSV && resultCode == RESULT_OK && data != null) {
             try (OutputStream out = getContentResolver().openOutputStream(data.getData())) {
                 String header = "time,host,port,file,threads,seconds,rounds,avg_mbps,peak_mbps,bytes,status\r\n";

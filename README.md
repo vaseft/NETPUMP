@@ -1,8 +1,29 @@
+# NetPump Mobile 2.0 — FTP 工程下行灌包 + 原 TCP/UDP 模式
+
+## v2 新增：FTP 多线程下行灌包
+
+本版本针对现场使用的 FTP 服务端，使用标准 `FTP RETR` 进行下载测速，**无需安装原 NetPump Python 服务端**。保留旧的 TCP/UDP 自有协议测速入口。打开 App 默认进入 FTP 下载页面。
+
+- FTP 服务器 Host/Port、用户名/密码、远程文件路径可配置；密码**仅在当前内存中使用，不写入本地配置、历史记录或 CSV**。
+- 默认参数：端口 `8108`、并发线程 `10`、文件 `/download/20GB.ZIP`、单轮 `120` 秒；FTP 服务器地址和用户名需用户在 App 内输入，避免在公开源码仓库披露具体服务器。
+- 被动 FTP：优先 `EPSV`，回退 `PASV`。每条并发线程使用自己的 FTP 控制连接和数据连接；支持多线程同时下载同一服务器文件。
+- 数据**仅用于计算网络吞吐量、直接丢弃**；不会把 20 GB 文件保存到手机存储。
+- 实时 Mbps、平均/峰值 Mbps、累计 GB、活动线程、测速折线；后台测试和通知栏停止；历史记录及 CSV。
+- `Count` 是计划轮数；勾选 `Cyclic Transfer` 时按 `Count` 轮运行，轮间按 `Inter` 秒等待；不勾选时只跑一轮。
+- `Delay Collection` 勾选时跳过前 `Delay Time` 秒的采样显示（采样预热）；`End(sec)` 为任务完成后的可取消结束等待。
+- `FtpType` 是明文 FTP，`Passive` 使用 true；尚不支持 FTPS/SFTP 或主动模式。
+
+**网优使用方法**：手机关闭 Wi-Fi，使用移动数据；填入有权限访问的 FTP Host/Port、账号密码与服务器文件路径；先点“检测 FTP 登录 / 检查文件”，再点“开始灌包”。如果 FTP 登录成功但下载失败，检查服务器被动数据端口范围、防火墙、账号对文件的读取权限及 NAT 映射。
+
+**安全与流量**：FTP 口令使用明文协议，可能被中间网络观察，建议只在授权受控测试网络使用。测试会产生实际下载流量，10 线程 × 120 秒可消耗数 GB 至数十 GB；请确认手机流量套餐和服务器可承载的压力。软件不会自动启动任务。
+
+## 历史 1.0 说明
+
 # NetPump Mobile 1.0 — 安卓 4G / 5G 工程灌包工具
 
 **项目性质：可编译的 Android 原生 App + 可直接运行的 PC/VPS 服务端。**
 
-此仓库包含完整 Android Studio 工程、Python 标准库服务端、协议测试和 GitHub Actions APK 构建工作流。**2026-11-15 已通过 GitHub Actions 编译，生成可安装的 Debug APK；尚未进行真机联调。** 服务端已完成 TCP/UDP 协议自动化测试（见 `server/tests/`）。
+此仓库包含完整 Android Studio 工程、Python 标准库服务端、协议测试和 GitHub Actions APK 构建工作流。**本交付包中的 Android 客户端未经 Android SDK 编译，也未经过真机联调，因此不包含可直接安装的 APK。** 服务端已完成 TCP/UDP 协议自动化测试（见 `server/tests/`）。
 
 ## 1. 功能
 
@@ -67,7 +88,7 @@ python server/netpump_server.py --bind 0.0.0.0 --port 5201 --token MyPrivate123
 
 ### GitHub Actions
 
-此项目已托管在 `vaseft/NETPUMP`。可在 [成功的构建记录](https://github.com/vaseft/NETPUMP/actions/runs/43673199508) 中的 **Artifacts** 下载 `NetPumpMobile-debug-apk`，解压得到 `app-debug.apk`，安装到 Android 8.0+ 手机上。也可以在 Actions 页面手动执行 **Build NetPump APK**，或在 main 分支推送代码自动重新编译。
+将整个目录上传到**新建的独立 GitHub 仓库**默认分支，在 Actions 页面手动执行 **Build NetPump APK**；或者将文件推到 main 分支，工作流自动编译 debug APK。完成后在运行页的 Artifacts 中下载 `NetPumpMobile-debug-apk`。
 
 > Debug APK 会由构建环境本地生成调试密钥并签名。长期使用或应用分发，应自行创建并安全保存 release 签名密钥。
 

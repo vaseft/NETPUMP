@@ -2,7 +2,7 @@
 
 **项目性质：可编译的 Android 原生 App + 可直接运行的 PC/VPS 服务端。**
 
-此仓库包含完整 Android Studio 工程、Python 标准库服务端、协议测试和 GitHub Actions APK 构建工作流。**本交付包中的 Android 客户端未经 Android SDK 编译，也未经过真机联调，因此不包含可直接安装的 APK。** 服务端已完成 TCP/UDP 协议自动化测试（见 `server/tests/`）。
+此仓库包含完整 Android Studio 工程、Python 标准库服务端、协议测试和 GitHub Actions APK 构建工作流。**2026-11-15 已通过 GitHub Actions 编译，生成可安装的 Debug APK；尚未进行真机联调。** 服务端已完成 TCP/UDP 协议自动化测试（见 `server/tests/`）。
 
 ## 1. 功能
 
@@ -67,7 +67,7 @@ python server/netpump_server.py --bind 0.0.0.0 --port 5201 --token MyPrivate123
 
 ### GitHub Actions
 
-将整个目录上传到**新建的独立 GitHub 仓库**默认分支，在 Actions 页面手动执行 **Build NetPump APK**；或者将文件推到 main 分支，工作流自动编译 debug APK。完成后在运行页的 Artifacts 中下载 `NetPumpMobile-debug-apk`。
+此项目已托管在 `vaseft/NETPUMP`。可在 [成功的构建记录](https://github.com/vaseft/NETPUMP/actions/runs/43673199508) 中的 **Artifacts** 下载 `NetPumpMobile-debug-apk`，解压得到 `app-debug.apk`，安装到 Android 8.0+ 手机上。也可以在 Actions 页面手动执行 **Build NetPump APK**，或在 main 分支推送代码自动重新编译。
 
 > Debug APK 会由构建环境本地生成调试密钥并签名。长期使用或应用分发，应自行创建并安全保存 release 签名密钥。
 
